@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     "django_filters",
     # Local apps
     "apps.buyers.apps.BuyersConfig",
+    "apps.orders.apps.OrdersConfig",
 ]
 
 MIDDLEWARE = [
