@@ -1,0 +1,74 @@
+
+# ==========================================
+# Python
+# ==========================================
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+
+# Test and coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
+
+# ==========================================
+# Node.js / React / TypeScript
+# ==========================================
+node_modules/
+dist/
+build/
+.vite/
+coverage/
+
+# Environment variables
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ==========================================
+# IDE and editor
+# ==========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ==========================================
+# macOS
+# ==========================================
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ==========================================
+# Temporary files
+# ==========================================
+*.tmp
+*.temp
+*.bak
+
+# ==========================================
+# Build and package files
+# ==========================================
+*.egg-info/
+pip-wheel-metadata/
