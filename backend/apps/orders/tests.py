@@ -5,8 +5,8 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.buyers.models import Buyer
-from .models import Order
-
+from apps.products.models import Product
+from .models import Order, OrderItem
 
 class OrderAPITests(APITestCase):
     """Test Order API CRUD operations and validation."""
@@ -253,3 +253,184 @@ class OrderAPITests(APITestCase):
             response.data["results"][0]["buyer"],
             self.buyer.pk,
         )
+        
+
+class OrderItemAPITests(APITestCase):
+    """Test OrderItem API CRUD operations and validation."""
+
+    def setUp(self):
+        self.buyer = Buyer.objects.create(
+            name="Test Fashion Ltd.",
+            email="test@example.com",
+            country="US",
+        )
+
+        self.order = Order.objects.create(
+            order_number="TEST-ORD-001",
+            buyer=self.buyer,
+            order_date=date(2026, 10, 20),
+            delivery_date=date(2026, 11, 10),
+            quantity=1000,
+            status=Order.Status.DRAFT,
+        )
+
+        self.product = Product.objects.create(
+            name="Cotton Fabric",
+            sku="TEST-FAB-001",
+            unit=Product.Unit.METER,
+        )
+
+        self.second_product = Product.objects.create(
+            name="Polyester Fabric",
+            sku="TEST-FAB-002",
+            unit=Product.Unit.METER,
+        )
+
+        self.list_url = reverse("order-item-list")
+
+        self.item = OrderItem.objects.create(
+            order=self.order,
+            product=self.product,
+            quantity=100,
+            unit_price="250.00",
+        )
+
+        self.detail_url = reverse(
+            "order-item-detail",
+            args=[self.item.pk],
+        )
+
+    def get_item_payload(self, **overrides):
+        """Return valid data for creating an order item."""
+
+        payload = {
+            "order": self.order.pk,
+            "product": self.second_product.pk,
+            "quantity": 50,
+            "unit_price": "300.00",
+        }
+
+        payload.update(overrides)
+        return payload
+
+    def test_list_order_items(self):
+        response = self.client.get(self.list_url)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(
+            response.data["results"][0]["product_name"],
+            "Cotton Fabric",
+        )
+
+    def test_create_order_item(self):
+        response = self.client.post(
+            self.list_url,
+            self.get_item_payload(),
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+        self.assertTrue(
+            OrderItem.objects.filter(
+                order=self.order,
+                product=self.second_product,
+            ).exists()
+        )
+        self.assertEqual(response.data["subtotal"], "15000.00")
+
+    def test_retrieve_order_item(self):
+        response = self.client.get(self.detail_url)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(response.data["quantity"], 100)
+        self.assertEqual(response.data["subtotal"], "25000.00")
+
+    def test_partial_update_order_item(self):
+        response = self.client.patch(
+            self.detail_url,
+            {"quantity": 120},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.quantity, 120)
+        self.assertEqual(self.item.unit_price, 250)
+
+    def test_delete_order_item(self):
+        response = self.client.delete(self.detail_url)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+        self.assertFalse(
+            OrderItem.objects.filter(pk=self.item.pk).exists()
+        )
+
+    def test_duplicate_product_in_same_order_is_rejected(self):
+        payload = self.get_item_payload(
+            product=self.product.pk,
+        )
+
+        response = self.client.post(
+            self.list_url,
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    def test_zero_quantity_is_rejected(self):
+        response = self.client.post(
+            self.list_url,
+            self.get_item_payload(quantity=0),
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    def test_negative_unit_price_is_rejected(self):
+        response = self.client.post(
+            self.list_url,
+            self.get_item_payload(unit_price="-10.00"),
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    def test_filter_order_items_by_order(self):
+        response = self.client.get(
+            self.list_url,
+            {"order": self.order.pk},
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(response.data["count"], 1)
+        

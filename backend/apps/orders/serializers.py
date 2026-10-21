@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from apps.buyers.models import Buyer
-from .models import Order
+from .models import Order, OrderItem
 
 
 class OrderSerializer(serializers.ModelSerializer):
@@ -71,3 +71,28 @@ class OrderSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
+        
+class OrderItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(
+        source="product.name",
+        read_only=True,
+    )
+
+    subtotal = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        read_only=True,
+    )
+
+    class Meta:
+        model = OrderItem
+        fields = (
+            "id",
+            "order",
+            "product",
+            "product_name",
+            "quantity",
+            "unit_price",
+            "subtotal",
+        )
+        read_only_fields = ("id", "subtotal")
