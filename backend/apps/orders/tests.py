@@ -8,6 +8,7 @@ from apps.buyers.models import Buyer
 from apps.products.models import Product
 from .models import Order, OrderItem
 
+
 class OrderAPITests(APITestCase):
     """Test Order API CRUD operations and validation."""
 
@@ -107,6 +108,38 @@ class OrderAPITests(APITestCase):
             response.data["buyer_name"],
             "ABC Fashion Ltd.",
         )
+
+    def test_order_response_includes_nested_items(self):
+        """Order response should include its items and calculated subtotal."""
+
+        product = Product.objects.create(
+            name="Cotton Fabric",
+            sku="NESTED-FAB-001",
+            unit=Product.Unit.METER,
+        )
+
+        OrderItem.objects.create(
+            order=self.order,
+            product=product,
+            quantity=100,
+            unit_price="250.00",
+        )
+
+        response = self.client.get(self.detail_url)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        self.assertEqual(len(response.data["items"]), 1)
+
+        item = response.data["items"][0]
+
+        self.assertEqual(item["product_name"], "Cotton Fabric")
+        self.assertEqual(item["quantity"], 100)
+        self.assertEqual(item["unit_price"], "250.00")
+        self.assertEqual(item["subtotal"], "25000.00")
 
     def test_partial_update_order_status(self):
         """PATCH should update only the supplied fields."""
@@ -253,7 +286,7 @@ class OrderAPITests(APITestCase):
             response.data["results"][0]["buyer"],
             self.buyer.pk,
         )
-        
+
 
 class OrderItemAPITests(APITestCase):
     """Test OrderItem API CRUD operations and validation."""
@@ -378,9 +411,7 @@ class OrderItemAPITests(APITestCase):
             response.status_code,
             status.HTTP_204_NO_CONTENT,
         )
-        self.assertFalse(
-            OrderItem.objects.filter(pk=self.item.pk).exists()
-        )
+        self.assertFalse(OrderItem.objects.filter(pk=self.item.pk).exists())
 
     def test_duplicate_product_in_same_order_is_rejected(self):
         payload = self.get_item_payload(
@@ -433,4 +464,3 @@ class OrderItemAPITests(APITestCase):
             status.HTTP_200_OK,
         )
         self.assertEqual(response.data["count"], 1)
-        

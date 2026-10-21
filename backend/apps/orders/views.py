@@ -6,7 +6,7 @@ from .serializers import OrderSerializer, OrderItemSerializer
 
 
 class OrderViewSet(viewsets.ModelViewSet):
-    queryset = Order.objects.select_related("buyer").all()
+    queryset = Order.objects.select_related("buyer").prefetch_related("items__product")
 
     serializer_class = OrderSerializer
 
@@ -84,7 +84,7 @@ class OrderItemViewSet(viewsets.ModelViewSet):
         SearchFilter — order number বা Buyer-এর নাম দিয়ে search করে।
         OrderingFilter — তারিখ, quantity বা order number অনুযায়ী sort করে।
     """
-    
+
     """
         select_related("order", "product") ব্যবহার করে সংশ্লিষ্ট Order ও Product-এর তথ্য দক্ষভাবে আনবে।
         filterset_fields দিয়ে নির্দিষ্ট Order বা Product-এর আইটেম খুঁজতে পারবে।

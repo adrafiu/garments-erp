@@ -1,10 +1,40 @@
 from rest_framework import serializers
 
-from apps.buyers.models import Buyer
 from .models import Order, OrderItem
 
 
+class OrderItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(
+        source="product.name",
+        read_only=True,
+    )
+
+    subtotal = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        read_only=True,
+    )
+
+    class Meta:
+        model = OrderItem
+        fields = (
+            "id",
+            "order",
+            "product",
+            "product_name",
+            "quantity",
+            "unit_price",
+            "subtotal",
+        )
+        read_only_fields = ("id", "subtotal")
+
+
 class OrderSerializer(serializers.ModelSerializer):
+    items = OrderItemSerializer(
+        many=True,
+        read_only=True,
+    )
+
     buyer_name = serializers.CharField(
         source="buyer.name",
         read_only=True,
@@ -35,6 +65,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "order_date",
             getattr(self.instance, "order_date", None),
         )
+
         delivery_date = attrs.get(
             "delivery_date",
             getattr(self.instance, "delivery_date", None),
@@ -55,14 +86,6 @@ class OrderSerializer(serializers.ModelSerializer):
 
         return buyer
 
-    """
-        buyer_name — API response-এ Buyer-এর নাম দেখাবে; এটি database-এ আলাদা করে সংরক্ষিত হবে না।
-        validate_order_number() — একই order number-এর uppercase/lowercase পরিবর্তন করে duplicate তৈরি হতে দেবে না।
-        validate() — delivery date যেন order date-এর আগের না হয়, সেটি পরীক্ষা করবে।
-        validate_buyer() — inactive Buyer-এর জন্য নতুন Order তৈরি করতে বাধা দেবে।
-        read_only_fields — ID ও timestamp client থেকে পরিবর্তন করা যাবে না।
-    """
-
     class Meta:
         model = Order
         fields = "__all__"
@@ -71,28 +94,11 @@ class OrderSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
-        
-class OrderItemSerializer(serializers.ModelSerializer):
-    product_name = serializers.CharField(
-        source="product.name",
-        read_only=True,
-    )
 
-    subtotal = serializers.DecimalField(
-        max_digits=15,
-        decimal_places=2,
-        read_only=True,
-    )
-
-    class Meta:
-        model = OrderItem
-        fields = (
-            "id",
-            "order",
-            "product",
-            "product_name",
-            "quantity",
-            "unit_price",
-            "subtotal",
-        )
-        read_only_fields = ("id", "subtotal")
+    """
+        buyer_name — API response-এ Buyer-এর নাম দেখাবে; এটি database-এ আলাদা করে সংরক্ষিত হবে না।
+        validate_order_number() — একই order number-এর uppercase/lowercase পরিবর্তন করে duplicate তৈরি হতে দেবে না।
+        validate() — delivery date যেন order date-এর আগের না হয়, সেটি পরীক্ষা করবে।
+        validate_buyer() — inactive Buyer-এর জন্য নতুন Order তৈরি করতে বাধা দেবে।
+        read_only_fields — ID ও timestamp client থেকে পরিবর্তন করা যাবে না।
+    """
