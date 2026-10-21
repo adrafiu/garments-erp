@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 from django.urls import reverse
 from rest_framework import status
@@ -7,6 +8,7 @@ from rest_framework.test import APITestCase
 from apps.buyers.models import Buyer
 from apps.products.models import Product
 from .models import Order, OrderItem
+
 
 
 class OrderAPITests(APITestCase):
@@ -140,6 +142,47 @@ class OrderAPITests(APITestCase):
         self.assertEqual(item["quantity"], 100)
         self.assertEqual(item["unit_price"], "250.00")
         self.assertEqual(item["subtotal"], "25000.00")
+
+    def test_order_financial_summary(self):
+        """Order response should include item count and total amount."""
+
+        first_product = Product.objects.create(
+            name="Cotton Fabric",
+            sku="SUMMARY-FAB-001",
+            unit=Product.Unit.METER,
+        )
+
+        second_product = Product.objects.create(
+            name="Sewing Thread",
+            sku="SUMMARY-THR-001",
+            unit=Product.Unit.METER,
+        )
+
+        OrderItem.objects.create(
+            order=self.order,
+            product=first_product,
+            quantity=100,
+            unit_price="250.00",
+        )
+
+        OrderItem.objects.create(
+            order=self.order,
+            product=second_product,
+            quantity=100,
+            unit_price="150.00",
+        )
+
+        response = self.client.get(self.detail_url)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(response.data["total_items"], 2)
+        self.assertEqual(
+            response.data["total_amount"],
+            Decimal("40000.00"),
+        )
 
     def test_partial_update_order_status(self):
         """PATCH should update only the supplied fields."""

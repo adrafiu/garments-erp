@@ -30,6 +30,19 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 
 class OrderSerializer(serializers.ModelSerializer):
+    total_items = serializers.SerializerMethodField()
+    total_amount = serializers.SerializerMethodField()
+
+    def get_total_items(self, obj):
+        return obj.items.count()
+
+    def get_total_amount(self, obj):
+        total = sum(
+            (item.subtotal for item in obj.items.all()),
+            start=0,
+        )
+        return total
+
     items = OrderItemSerializer(
         many=True,
         read_only=True,
@@ -93,6 +106,8 @@ class OrderSerializer(serializers.ModelSerializer):
             "id",
             "created_at",
             "updated_at",
+            "total_items",
+            "total_amount",
         )
 
     """
