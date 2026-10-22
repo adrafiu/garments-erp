@@ -112,6 +112,17 @@ class ProductAPITests(APITestCase):
             is_active=True,
         )
 
+    def test_low_stock_endpoint_excludes_inactive_products(self):
+        self.product.current_stock = Decimal("0.000")
+        self.product.minimum_stock_level = Decimal("10.000")
+        self.product.is_active = False
+        self.product.save()
+
+        response = self.client.get(f"{self.list_url}low-stock/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 0)
+
     def test_low_stock_endpoint_returns_products_at_or_below_minimum(self):
         self.product.current_stock = Decimal("5.000")
         self.product.minimum_stock_level = Decimal("10.000")
@@ -132,6 +143,17 @@ class ProductAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["count"], 0)
+
+    def test_low_stock_endpoint_includes_products_at_exact_minimum(self):
+        self.product.current_stock = Decimal("10.000")
+        self.product.minimum_stock_level = Decimal("10.000")
+        self.product.save()
+
+        response = self.client.get(f"{self.list_url}low-stock/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["sku"], "FAB-001")
 
     def test_list_products(self):
         response = self.client.get(self.list_url)
