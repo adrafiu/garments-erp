@@ -3,10 +3,15 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from django.urls import reverse
 
-from apps.products.models import Product
+from apps.products.models import Product, StockMovement
 from apps.suppliers.models import Supplier
 
-from .models import PurchaseOrder, PurchaseOrderItem
+from .models import (
+    GoodsReceipt,
+    GoodsReceiptItem,
+    PurchaseOrder,
+    PurchaseOrderItem,
+)
 
 
 class PurchaseOrderAPITests(APITestCase):
@@ -358,3 +363,322 @@ class PurchaseOrderAPITests(APITestCase):
         from decimal import Decimal
 
         return Decimal(value)
+
+
+class GoodsReceiptAPITests(APITestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="receipt-test-user",
+            password="test-password-123",
+        )
+        self.client.force_authenticate(user=self.user)
+
+        self.supplier = Supplier.objects.create(
+            name="Receipt Test Supplier",
+            contact_person="Test Person",
+            email="receipt@example.com",
+            phone="01712345679",
+            address="Dhaka, Bangladesh",
+            country="BD",
+            is_active=True,
+        )
+
+        self.product = Product.objects.create(
+            sku="REC-001",
+            name="Receipt Test Fabric",
+            description="Fabric for goods receipt tests",
+            unit=Product.Unit.METER,
+            current_stock="0.000",
+            is_active=True,
+        )
+
+        self.purchase_order = PurchaseOrder.objects.create(
+            po_number="PO-RECEIPT-001",
+            supplier=self.supplier,
+            order_date="2026-10-20",
+            expected_delivery_date="2026-10-30",
+            status=PurchaseOrder.Status.APPROVED,
+            notes="Goods receipt test",
+        )
+
+        self.purchase_order_item = PurchaseOrderItem.objects.create(
+            purchase_order=self.purchase_order,
+            product=self.product,
+            quantity="100.000",
+            unit_price="12.50",
+        )
+
+        self.list_url = reverse("goods-receipt-list")
+
+        self.payload = {
+            "receipt_number": "GR-2026-001",
+            "purchase_order": self.purchase_order.pk,
+            "received_date": "2026-10-23",
+            "notes": "First fabric delivery",
+            "items": [
+                {
+                    "purchase_order_item_id": self.purchase_order_item.pk,
+                    "received_quantity": "40.000",
+                }
+            ],
+        }
+
+    def test_reject_receiving_more_than_ordered_quantity(self):
+        payload = self.payload.copy()
+        payload["receipt_number"] = "GR-2026-002"
+        payload["items"] = [
+            {
+                "purchase_order_item_id": self.purchase_order_item.pk,
+                "received_quantity": "101.000",
+            }
+        ]
+
+        response = self.client.post(
+            self.list_url,
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            response.data,
+        )
+
+        self.product.refresh_from_db()
+
+        self.assertEqual(
+            self.product.current_stock,
+            self._decimal("0.000"),
+        )
+        self.assertEqual(GoodsReceipt.objects.count(), 0)
+        self.assertEqual(StockMovement.objects.count(), 0)
+
+    def test_partial_then_full_receiving_updates_order_status(self):
+        # First receipt: receive 40 out of 100.
+        first_payload = self.payload.copy()
+        first_payload["items"] = [
+            {
+                "purchase_order_item_id": self.purchase_order_item.pk,
+                "received_quantity": "40.000",
+            }
+        ]
+
+        first_response = self.client.post(
+            self.list_url,
+            first_payload,
+            format="json",
+        )
+
+        self.assertEqual(
+            first_response.status_code,
+            status.HTTP_201_CREATED,
+            first_response.data,
+        )
+
+        self.purchase_order.refresh_from_db()
+        self.assertEqual(
+            self.purchase_order.status,
+            PurchaseOrder.Status.PARTIALLY_RECEIVED,
+        )
+
+        # Second receipt: receive the remaining 60.
+        second_payload = self.payload.copy()
+        second_payload["receipt_number"] = "GR-2026-002"
+        second_payload["items"] = [
+            {
+                "purchase_order_item_id": self.purchase_order_item.pk,
+                "received_quantity": "60.000",
+            }
+        ]
+
+        second_response = self.client.post(
+            self.list_url,
+            second_payload,
+            format="json",
+        )
+
+        self.assertEqual(
+            second_response.status_code,
+            status.HTTP_201_CREATED,
+            second_response.data,
+        )
+
+        self.product.refresh_from_db()
+        self.purchase_order.refresh_from_db()
+
+        self.assertEqual(
+            self.product.current_stock,
+            self._decimal("100.000"),
+        )
+        self.assertEqual(
+            self.purchase_order.status,
+            PurchaseOrder.Status.RECEIVED,
+        )
+        self.assertEqual(GoodsReceipt.objects.count(), 2)
+        self.assertEqual(StockMovement.objects.count(), 2)
+
+    def test_list_and_retrieve_goods_receipts(self):
+        create_response = self.client.post(
+            self.list_url,
+            self.payload,
+            format="json",
+        )
+
+        self.assertEqual(
+            create_response.status_code,
+            status.HTTP_201_CREATED,
+            create_response.data,
+        )
+
+        receipt_id = create_response.data["id"]
+
+        list_response = self.client.get(self.list_url)
+
+        self.assertEqual(
+            list_response.status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(list_response.data["count"], 1)
+        self.assertEqual(
+            list_response.data["results"][0]["receipt_number"],
+            "GR-2026-001",
+        )
+
+        detail_url = reverse(
+            "goods-receipt-detail",
+            args=[receipt_id],
+        )
+        detail_response = self.client.get(detail_url)
+
+        self.assertEqual(
+            detail_response.status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(
+            detail_response.data["purchase_order_number"],
+            "PO-RECEIPT-001",
+        )
+        self.assertEqual(
+            detail_response.data["items"][0]["product_name"],
+            "Receipt Test Fabric",
+        )
+
+    def test_goods_receipt_cannot_be_updated_or_deleted(self):
+        create_response = self.client.post(
+            self.list_url,
+            self.payload,
+            format="json",
+        )
+
+        self.assertEqual(
+            create_response.status_code,
+            status.HTTP_201_CREATED,
+            create_response.data,
+        )
+
+        receipt_id = create_response.data["id"]
+        detail_url = reverse(
+            "goods-receipt-detail",
+            args=[receipt_id],
+        )
+
+        update_response = self.client.patch(
+            detail_url,
+            {"notes": "Attempted update"},
+            format="json",
+        )
+        self.assertEqual(
+            update_response.status_code,
+            status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+        delete_response = self.client.delete(detail_url)
+        self.assertEqual(
+            delete_response.status_code,
+            status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+        self.assertEqual(GoodsReceipt.objects.count(), 1)
+
+        self.product.refresh_from_db()
+        self.assertEqual(
+            self.product.current_stock,
+            self._decimal("40.000"),
+        )
+
+    def test_reject_goods_receipt_for_draft_purchase_order(self):
+        self.purchase_order.status = PurchaseOrder.Status.DRAFT
+        self.purchase_order.save(update_fields=["status"])
+
+        response = self.client.post(
+            self.list_url,
+            self.payload,
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            response.data,
+        )
+
+        self.product.refresh_from_db()
+        self.assertEqual(
+            self.product.current_stock,
+            self._decimal("0.000"),
+        )
+        self.assertEqual(GoodsReceipt.objects.count(), 0)
+        self.assertEqual(StockMovement.objects.count(), 0)
+
+    def test_create_goods_receipt_updates_stock(self):
+        response = self.client.post(
+            self.list_url,
+            self.payload,
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            response.data,
+        )
+
+        self.product.refresh_from_db()
+        self.purchase_order.refresh_from_db()
+
+        self.assertEqual(
+            self.product.current_stock,
+            self._decimal("40.000"),
+        )
+        self.assertEqual(
+            self.purchase_order.status,
+            PurchaseOrder.Status.PARTIALLY_RECEIVED,
+        )
+        self.assertEqual(GoodsReceipt.objects.count(), 1)
+        self.assertEqual(GoodsReceiptItem.objects.count(), 1)
+        self.assertEqual(StockMovement.objects.count(), 1)
+
+        movement = StockMovement.objects.get()
+        self.assertEqual(
+            movement.movement_type,
+            StockMovement.MovementType.STOCK_IN,
+        )
+        self.assertEqual(
+            movement.quantity,
+            self._decimal("40.000"),
+        )
+
+    @staticmethod
+    def _decimal(value):
+        from decimal import Decimal
+
+        return Decimal(value)
+
+
+"""
+API-তে POST /api/goods-receipts/ পাঠালে receipt তৈরি হয় কি না।
+১০০ মিটারের অর্ডার থেকে ৪০ মিটার গ্রহণ করলে stock ৪০ মিটার হয় কি না।
+Purchase Order-এর status partially_received হয় কি না।
+একটি GoodsReceiptItem ও একটি STOCK_IN movement তৈরি হয় কি না।
+"""

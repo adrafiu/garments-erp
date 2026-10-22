@@ -1,6 +1,10 @@
 from rest_framework.routers import DefaultRouter
 
-from .views import PurchaseOrderItemViewSet, PurchaseOrderViewSet
+from .views import (
+    GoodsReceiptViewSet,
+    PurchaseOrderItemViewSet,
+    PurchaseOrderViewSet,
+)
 
 router = DefaultRouter()
 
@@ -9,11 +13,15 @@ router.register(
     PurchaseOrderViewSet,
     basename="purchase-order",
 )
-
 router.register(
     "purchase-order-items",
     PurchaseOrderItemViewSet,
     basename="purchase-order-item",
+)
+router.register(
+    "goods-receipts",
+    GoodsReceiptViewSet,
+    basename="goods-receipt",
 )
 
 urlpatterns = router.urls

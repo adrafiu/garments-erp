@@ -1,8 +1,9 @@
 from decimal import Decimal
+
 from django.core.validators import MinValueValidator
 from django.db import models
 
-from apps.products.models import Product
+from apps.products.models import Product, StockMovement
 from apps.suppliers.models import Supplier
 
 
@@ -15,10 +16,7 @@ class PurchaseOrder(models.Model):
         RECEIVED = "received", "Received"
         CANCELLED = "cancelled", "Cancelled"
 
-    po_number = models.CharField(
-        max_length=30,
-        unique=True,
-    )
+    po_number = models.CharField(max_length=30, unique=True)
 
     supplier = models.ForeignKey(
         Supplier,
@@ -27,7 +25,6 @@ class PurchaseOrder(models.Model):
     )
 
     order_date = models.DateField()
-
     expected_delivery_date = models.DateField()
 
     status = models.CharField(
@@ -37,9 +34,7 @@ class PurchaseOrder(models.Model):
     )
 
     notes = models.TextField(blank=True)
-
     created_at = models.DateTimeField(auto_now_add=True)
-
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -71,12 +66,11 @@ class PurchaseOrderItem(models.Model):
     unit_price = models.DecimalField(
         max_digits=14,
         decimal_places=2,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal("0"))],
     )
 
     class Meta:
         ordering = ["id"]
-
         constraints = [
             models.UniqueConstraint(
                 fields=["purchase_order", "product"],
@@ -98,3 +92,78 @@ class PurchaseOrderItem(models.Model):
 
     def __str__(self):
         return f"{self.purchase_order.po_number} - {self.product.name}"
+
+
+class GoodsReceipt(models.Model):
+    class Status(models.TextChoices):
+        RECEIVED = "received", "Received"
+
+    receipt_number = models.CharField(max_length=30, unique=True)
+
+    purchase_order = models.ForeignKey(
+        PurchaseOrder,
+        on_delete=models.PROTECT,
+        related_name="goods_receipts",
+    )
+
+    received_date = models.DateField()
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.RECEIVED,
+        editable=False,
+    )
+
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-received_date", "-id"]
+
+    def __str__(self):
+        return self.receipt_number
+
+
+class GoodsReceiptItem(models.Model):
+    goods_receipt = models.ForeignKey(
+        GoodsReceipt,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+
+    purchase_order_item = models.ForeignKey(
+        PurchaseOrderItem,
+        on_delete=models.PROTECT,
+        related_name="goods_receipt_items",
+    )
+
+    received_quantity = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        validators=[MinValueValidator(Decimal("0.001"))],
+    )
+
+    stock_movement = models.OneToOneField(
+        StockMovement,
+        on_delete=models.PROTECT,
+        related_name="goods_receipt_item",
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(received_quantity__gt=0),
+                name="goods_receipt_item_quantity_gt_zero",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.goods_receipt.receipt_number} - "
+            f"{self.purchase_order_item.product.name}"
+        )

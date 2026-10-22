@@ -4,7 +4,12 @@ from rest_framework import serializers
 from apps.products.models import Product
 from apps.suppliers.models import Supplier
 
-from .models import PurchaseOrder, PurchaseOrderItem
+from .models import (
+    GoodsReceipt,
+    GoodsReceiptItem,
+    PurchaseOrder,
+    PurchaseOrderItem,
+)
 
 
 class PurchaseOrderItemSerializer(serializers.ModelSerializer):
@@ -145,3 +150,130 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
         )
 
         return purchase_order
+
+
+class GoodsReceiptItemSerializer(serializers.ModelSerializer):
+    purchase_order_item_id = serializers.IntegerField(min_value=1)
+    product_name = serializers.CharField(
+        source="purchase_order_item.product.name",
+        read_only=True,
+    )
+
+    class Meta:
+        model = GoodsReceiptItem
+        fields = [
+            "id",
+            "purchase_order_item_id",
+            "product_name",
+            "received_quantity",
+        ]
+        read_only_fields = ["id", "product_name"]
+
+    def validate_received_quantity(self, value):
+        if value <= 0:
+            raise serializers.ValidationError(
+                "Received quantity must be greater than zero."
+            )
+        return value
+
+
+class GoodsReceiptSerializer(serializers.ModelSerializer):
+    items = GoodsReceiptItemSerializer(many=True)
+    purchase_order_number = serializers.CharField(
+        source="purchase_order.po_number",
+        read_only=True,
+    )
+
+    class Meta:
+        model = GoodsReceipt
+        fields = [
+            "id",
+            "receipt_number",
+            "purchase_order",
+            "purchase_order_number",
+            "received_date",
+            "status",
+            "notes",
+            "items",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "status",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_items(self, items):
+        if not items:
+            raise serializers.ValidationError(
+                "A goods receipt must contain at least one item."
+            )
+
+        item_ids = [item["purchase_order_item_id"] for item in items]
+
+        if len(item_ids) != len(set(item_ids)):
+            raise serializers.ValidationError(
+                "A purchase order item can appear only once per receipt."
+            )
+
+        return items
+
+    def validate(self, attrs):
+        purchase_order = attrs["purchase_order"]
+
+        allowed_statuses = {
+            PurchaseOrder.Status.APPROVED,
+            PurchaseOrder.Status.PARTIALLY_RECEIVED,
+        }
+
+        if purchase_order.status not in allowed_statuses:
+            raise serializers.ValidationError(
+                {
+                    "purchase_order": (
+                        "Goods can only be received for approved or "
+                        "partially received purchase orders."
+                    )
+                }
+            )
+
+        return attrs
+
+    def create(self, validated_data):
+        from .services import create_goods_receipt
+
+        items_data = validated_data.pop("items")
+        purchase_order = validated_data.pop("purchase_order")
+
+        service_items = [
+            {
+                "purchase_order_item_id": item["purchase_order_item_id"],
+                "received_quantity": item["received_quantity"],
+            }
+            for item in items_data
+        ]
+
+        try:
+            return create_goods_receipt(
+                receipt_number=validated_data["receipt_number"],
+                purchase_order_id=purchase_order.id,
+                received_date=validated_data["received_date"],
+                items=service_items,
+                notes=validated_data.get("notes", ""),
+            )
+        except Exception as exc:
+            from django.core.exceptions import ValidationError
+
+            if isinstance(exc, ValidationError):
+                raise serializers.ValidationError(exc.messages) from exc
+            raise
+
+
+"""
+GoodsReceiptItemSerializer: কোন Purchase Order item কত quantity receive করা হচ্ছে, তা validate করবে।
+GoodsReceiptSerializer: receipt-এর মূল তথ্য ও nested items validate করবে।
+validate_items(): receipt-এ item খালি রাখা বা একই item দুবার পাঠানো আটকাবে।
+validate(): শুধু approved অথবা partially_received Purchase Order গ্রহণ করবে।
+create(): validated data-কে create_goods_receipt() service-এ পাঠাবে। Stock ও Purchase Order status update হবে service-এর মাধ্যমে।
+"""
