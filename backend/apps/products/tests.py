@@ -158,6 +158,48 @@ class ProductAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(Product.objects.filter(sku="FAB-002").exists())
 
+    def test_create_product_ignores_direct_current_stock_input(self):
+        data = {
+            "sku": "FAB-003",
+            "name": "Denim Fabric",
+            "description": "Denim fabric",
+            "unit": "meter",
+            "current_stock": "100.000",
+            "is_active": True,
+        }
+
+        response = self.client.post(
+            self.list_url,
+            data,
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        product = Product.objects.get(sku="FAB-003")
+        self.assertEqual(product.current_stock, Decimal("0.000"))
+
+    def test_update_product_ignores_direct_current_stock_input(self):
+        self.product.current_stock = Decimal("10.000")
+        self.product.save(update_fields=["current_stock"])
+
+        response = self.client.patch(
+            f"{self.list_url}{self.product.pk}/",
+            {"current_stock": "100.000"},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.current_stock, Decimal("10.000"))
+
     def test_retrieve_product(self):
         response = self.client.get(f"{self.list_url}{self.product.pk}/")
 
