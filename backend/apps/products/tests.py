@@ -321,6 +321,38 @@ class StockMovementServiceTests(APITestCase):
         self.product.refresh_from_db()
         self.assertEqual(self.product.current_stock, Decimal("7.000"))
 
+    def test_stock_out_rejects_zero_quantity(self):
+        with self.assertRaises(ValidationError):
+            create_stock_movement(
+                product_id=self.product.pk,
+                movement_type=StockMovement.MovementType.STOCK_OUT,
+                quantity=Decimal("0.000"),
+            )
+
+        self.product.refresh_from_db()
+
+        self.assertEqual(self.product.current_stock, Decimal("10.000"))
+        self.assertEqual(
+            StockMovement.objects.filter(product=self.product).count(),
+            0,
+        )
+
+    def test_stock_out_rejects_negative_quantity(self):
+        with self.assertRaises(ValidationError):
+            create_stock_movement(
+                product_id=self.product.pk,
+                movement_type=StockMovement.MovementType.STOCK_OUT,
+                quantity=Decimal("-3.000"),
+            )
+
+        self.product.refresh_from_db()
+
+        self.assertEqual(self.product.current_stock, Decimal("10.000"))
+        self.assertEqual(
+            StockMovement.objects.filter(product=self.product).count(),
+            0,
+        )
+
     def test_stock_out_rejects_insufficient_stock(self):
         with self.assertRaises(ValidationError):
             create_stock_movement(
@@ -351,6 +383,20 @@ class StockMovementServiceTests(APITestCase):
             movement.note,
             "Physical stock count correction",
         )
+
+    def test_adjustment_cannot_make_stock_negative(self):
+        with self.assertRaises(ValidationError):
+            create_stock_movement(
+                product_id=self.product.id,
+                movement_type=StockMovement.MovementType.ADJUSTMENT,
+                quantity=Decimal("-11.000"),
+                note="Incorrect stock count",
+            )
+
+        self.product.refresh_from_db()
+
+        self.assertEqual(self.product.current_stock, Decimal("10.000"))
+        self.assertEqual(StockMovement.objects.count(), 0)
 
     def test_adjustment_without_reason_is_rejected(self):
         with self.assertRaises(ValidationError):
