@@ -493,6 +493,235 @@ class StockMovementAPITests(APITestCase):
 
         self.url = "/api/stock-movements/"
 
+    def test_stock_movement_history_returns_movement_details(self):
+        create_response = self.client.post(
+            self.url,
+            {
+                "product": self.product.pk,
+                "movement_type": "stock_in",
+                "quantity": "5.000",
+                "note": "History API test",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            create_response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+
+        movement = response.data["results"][0]
+
+        self.assertEqual(movement["product"], self.product.pk)
+        self.assertEqual(movement["product_sku"], "STOCK-API-001")
+        self.assertEqual(movement["product_name"], "API Test Cotton Fabric")
+        self.assertEqual(movement["movement_type"], "stock_in")
+        self.assertEqual(movement["quantity"], "5.000")
+        self.assertEqual(movement["note"], "History API test")
+        self.assertIn("created_at", movement)
+
+    def test_stock_movement_history_orders_by_quantity_descending(self):
+        first_response = self.client.post(
+            self.url,
+            {
+                "product": self.product.pk,
+                "movement_type": "stock_in",
+                "quantity": "2.000",
+                "note": "Small fabric receipt",
+            },
+            format="json",
+        )
+
+        second_response = self.client.post(
+            self.url,
+            {
+                "product": self.product.pk,
+                "movement_type": "stock_in",
+                "quantity": "8.000",
+                "note": "Large fabric receipt",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            first_response.status_code,
+            status.HTTP_201_CREATED,
+        )
+        self.assertEqual(
+            second_response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        response = self.client.get(
+            self.url,
+            {"ordering": "-quantity"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 2)
+
+        movements = response.data["results"]
+
+        self.assertEqual(movements[0]["quantity"], "8.000")
+        self.assertEqual(movements[1]["quantity"], "2.000")
+
+    def test_stock_movement_history_filters_by_movement_type(self):
+        stock_in_response = self.client.post(
+            self.url,
+            {
+                "product": self.product.pk,
+                "movement_type": "stock_in",
+                "quantity": "5.000",
+                "note": "Incoming fabric",
+            },
+            format="json",
+        )
+
+        stock_out_response = self.client.post(
+            self.url,
+            {
+                "product": self.product.pk,
+                "movement_type": "stock_out",
+                "quantity": "3.000",
+                "note": "Issued fabric",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            stock_in_response.status_code,
+            status.HTTP_201_CREATED,
+        )
+        self.assertEqual(
+            stock_out_response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        response = self.client.get(
+            self.url,
+            {"movement_type": "stock_in"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(
+            response.data["results"][0]["movement_type"],
+            "stock_in",
+        )
+        self.assertEqual(
+            response.data["results"][0]["note"],
+            "Incoming fabric",
+        )
+
+    def test_stock_movement_history_filters_by_product(self):
+        another_product = Product.objects.create(
+            sku="STOCK-API-002",
+            name="API Test Sewing Thread",
+            category=self.category,
+            unit=Product.Unit.PIECE,
+            current_stock=Decimal("20.000"),
+            minimum_stock_level=Decimal("5.000"),
+        )
+
+        first_response = self.client.post(
+            self.url,
+            {
+                "product": self.product.pk,
+                "movement_type": "stock_in",
+                "quantity": "5.000",
+                "note": "Cotton fabric shipment alpha",
+            },
+            format="json",
+        )
+
+        second_response = self.client.post(
+            self.url,
+            {
+                "product": another_product.pk,
+                "movement_type": "stock_in",
+                "quantity": "10.000",
+                "note": "Sewing thread received",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            first_response.status_code,
+            status.HTTP_201_CREATED,
+        )
+        self.assertEqual(
+            second_response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        response = self.client.get(
+            self.url,
+            {"product": self.product.pk},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+
+        movement = response.data["results"][0]
+
+        self.assertEqual(movement["product"], self.product.pk)
+        self.assertEqual(
+            movement["note"],
+            "Cotton fabric shipment alpha",
+        )
+
+    def test_stock_movement_history_searches_by_note(self):
+        first_response = self.client.post(
+            self.url,
+            {
+                "product": self.product.pk,
+                "movement_type": "stock_in",
+                "quantity": "5.000",
+                "note": "Cotton fabric shipment alpha",
+            },
+            format="json",
+        )
+
+        second_response = self.client.post(
+            self.url,
+            {
+                "product": self.product.pk,
+                "movement_type": "stock_in",
+                "quantity": "2.000",
+                "note": "Polyester fabric received",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            first_response.status_code,
+            status.HTTP_201_CREATED,
+        )
+        self.assertEqual(
+            second_response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        response = self.client.get(
+            self.url,
+            {"search": "alpha"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+
+        movement = response.data["results"][0]
+
+        self.assertEqual(
+            movement["note"],
+            "Cotton fabric shipment alpha",
+        )
+
     def test_stock_in_api_increases_current_stock(self):
         response = self.client.post(
             self.url,
