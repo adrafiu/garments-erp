@@ -877,6 +877,91 @@ class StockMovementAPITests(APITestCase):
             0,
         )
 
+    def test_stock_movement_cannot_be_updated(self):
+        create_response = self.client.post(
+            self.url,
+            {
+                "product": self.product.pk,
+                "movement_type": "stock_in",
+                "quantity": "5.000",
+                "note": "Immutable audit history",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            create_response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        movement = StockMovement.objects.get(
+            product=self.product,
+        )
+
+        response = self.client.patch(
+            f"{self.url}{movement.pk}/",
+            {"note": "Tampered history"},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+        movement.refresh_from_db()
+        self.product.refresh_from_db()
+
+        self.assertEqual(
+            movement.note,
+            "Immutable audit history",
+        )
+        self.assertEqual(
+            self.product.current_stock,
+            Decimal("15.000"),
+        )
+
+    def test_stock_movement_cannot_be_deleted(self):
+        create_response = self.client.post(
+            self.url,
+            {
+                "product": self.product.pk,
+                "movement_type": "stock_in",
+                "quantity": "5.000",
+                "note": "Keep this audit record",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            create_response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        movement = StockMovement.objects.get(
+            product=self.product,
+        )
+
+        response = self.client.delete(
+            f"{self.url}{movement.pk}/",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+        self.assertTrue(
+            StockMovement.objects.filter(pk=movement.pk).exists(),
+        )
+
+        self.product.refresh_from_db()
+
+        self.assertEqual(
+            self.product.current_stock,
+            Decimal("15.000"),
+        )
+
 
 class InventorySummaryAPITests(APITestCase):
     url = "/api/products/inventory-summary/"
@@ -942,8 +1027,7 @@ class InventorySummaryAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         categories = {
-            item["name"]: item["product_count"]
-            for item in response.data["categories"]
+            item["name"]: item["product_count"] for item in response.data["categories"]
         }
 
         self.assertEqual(categories["Summary Raw Materials"], 2)
@@ -960,8 +1044,7 @@ class InventorySummaryAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         category_counts = {
-            item["name"]: item["product_count"]
-            for item in response.data["categories"]
+            item["name"]: item["product_count"] for item in response.data["categories"]
         }
 
         self.assertIn(empty_category.name, category_counts)
