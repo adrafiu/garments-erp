@@ -848,3 +848,31 @@ class StockMovementAPITests(APITestCase):
             StockMovement.objects.filter(product=self.product).count(),
             0,
         )
+
+    def test_invalid_movement_type_returns_400_without_changing_stock(self):
+        response = self.client.post(
+            self.url,
+            {
+                "product": self.product.pk,
+                "movement_type": "invalid_type",
+                "quantity": "5.000",
+                "note": "Invalid movement type API test",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.product.refresh_from_db()
+        self.assertEqual(
+            self.product.current_stock,
+            Decimal("10.000"),
+        )
+
+        self.assertEqual(
+            StockMovement.objects.filter(product=self.product).count(),
+            0,
+        )
