@@ -1,5 +1,5 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import F
+from django.db.models import Count, F, Q
 from django_filters.rest_framework import DjangoFilterBackend
 
 from rest_framework import filters, status, viewsets
@@ -87,6 +87,38 @@ class ProductViewSet(viewsets.ModelViewSet):
         "name",
         "id",
     ]
+
+    @action(detail=False, methods=["get"], url_path="inventory-summary")
+    def inventory_summary(self, request):
+        active_products = Product.objects.filter(is_active=True)
+
+        summary = active_products.aggregate(
+            total_active_products=Count("id"),
+            total_low_stock_products=Count(
+                "id",
+                filter=Q(current_stock__lte=F("minimum_stock_level")),
+            ),
+            total_out_of_stock_products=Count(
+                "id",
+                filter=Q(current_stock__lte=0),
+            ),
+        )
+
+        categories = (
+            ProductCategory.objects.filter(is_active=True)
+            .annotate(
+                product_count=Count(
+                    "products",
+                    filter=Q(products__is_active=True),
+                )
+            )
+            .values("id", "name", "category_type", "product_count")
+        )
+
+        return Response({
+            **summary,
+            "categories": list(categories),
+        })
 
     @action(detail=False, methods=["get"], url_path="low-stock")
     def low_stock(self, request):

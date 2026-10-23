@@ -876,3 +876,93 @@ class StockMovementAPITests(APITestCase):
             StockMovement.objects.filter(product=self.product).count(),
             0,
         )
+
+
+class InventorySummaryAPITests(APITestCase):
+    url = "/api/products/inventory-summary/"
+
+    def setUp(self):
+        self.raw_material_category = ProductCategory.objects.create(
+            name="Summary Raw Materials",
+            category_type=ProductCategory.CategoryType.RAW_MATERIAL,
+        )
+
+        self.accessory_category = ProductCategory.objects.create(
+            name="Summary Accessories",
+            category_type=ProductCategory.CategoryType.ACCESSORY,
+        )
+
+        Product.objects.create(
+            sku="SUM-001",
+            name="Cotton Fabric",
+            category=self.raw_material_category,
+            current_stock=Decimal("100.000"),
+            minimum_stock_level=Decimal("10.000"),
+            is_active=True,
+        )
+
+        Product.objects.create(
+            sku="SUM-002",
+            name="Low Stock Fabric",
+            category=self.raw_material_category,
+            current_stock=Decimal("5.000"),
+            minimum_stock_level=Decimal("10.000"),
+            is_active=True,
+        )
+
+        Product.objects.create(
+            sku="SUM-003",
+            name="Out of Stock Button",
+            category=self.accessory_category,
+            current_stock=Decimal("0.000"),
+            minimum_stock_level=Decimal("5.000"),
+            is_active=True,
+        )
+
+        Product.objects.create(
+            sku="SUM-004",
+            name="Inactive Product",
+            category=self.accessory_category,
+            current_stock=Decimal("0.000"),
+            minimum_stock_level=Decimal("5.000"),
+            is_active=False,
+        )
+
+    def test_inventory_summary_returns_correct_counts(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["total_active_products"], 3)
+        self.assertEqual(response.data["total_low_stock_products"], 2)
+        self.assertEqual(response.data["total_out_of_stock_products"], 1)
+
+    def test_inventory_summary_returns_product_counts_by_category(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        categories = {
+            item["name"]: item["product_count"]
+            for item in response.data["categories"]
+        }
+
+        self.assertEqual(categories["Summary Raw Materials"], 2)
+        self.assertEqual(categories["Summary Accessories"], 1)
+
+    def test_inventory_summary_includes_active_categories_with_zero_products(self):
+        empty_category = ProductCategory.objects.create(
+            name="Summary Empty Category",
+            category_type=ProductCategory.CategoryType.FINISHED_GOOD,
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        category_counts = {
+            item["name"]: item["product_count"]
+            for item in response.data["categories"]
+        }
+
+        self.assertIn(empty_category.name, category_counts)
+        self.assertEqual(category_counts[empty_category.name], 0)
